@@ -1,796 +1,2019 @@
-Linux DevOps Interview Questions & Answers
-1. Production & Troubleshooting
-1. Your server CPU suddenly spikes to 100%. How do you identify the root cause?
-# Check overall CPU usage
+## 1. Your server CPU suddenly spikes to 100%. How do you identify the root cause?
+
+**Answer:**
+
+First, I confirm whether it’s a real CPU issue or just a temporary spike.
+
+```bash
 top
-htop
+```
 
-# Check load average
+* Shows real-time CPU usage
+* Look at `%us` (user), `%sy` (system), `%id` (idle)
+* If idle is very low → CPU is actually busy
+
+```bash
 uptime
+```
 
-# Find top CPU-consuming processes
+* Gives load average (1, 5, 15 mins)
+* If load is higher than CPU cores → system is overloaded
+
+Next, identify the top CPU-consuming processes:
+
+```bash
 ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head
+```
 
-# Check per-core CPU usage
-mpstat -P ALL 1
+* Lists processes sorted by CPU usage
+* Helps quickly identify the culprit
 
-# Check if Java process is causing issue
-top -H -p <PID>
+Optional (more interactive view):
 
-# Check logs
-journalctl -xe
-tail -f /var/log/messages
-Real-Time Troubleshooting Flow
-
-In production, first I check whether CPU spike is due to:
-
-Application issue
-Infinite loop
-Traffic spike
-Background job
-Memory swapping
-Malware/miner process
-Example Scenario
-
-A Java application suddenly started consuming 350% CPU.
-
-Steps followed:
-
-Ran top
-Identified Java PID consuming high CPU
-Used:
-top -H -p <java_pid>
-Found one thread consuming high CPU
-Converted thread HEX value:
-printf "%x\n" <thread_id>
-Collected thread dump:
-jstack <PID> > thread.dump
-Developer identified infinite loop in API logic
-Temporary fix → restarted service
-Permanent fix → code patch deployed
-Important Commands
-sar -u 1 5
-vmstat 1
-iostat -x 1
-pidstat 1
-2. A process is consuming high memory but you don’t know which one. How do you find and fix it?
-free -m
-top
+```bash
 htop
+```
 
-# Find top memory-consuming processes
-ps -eo pid,cmd,%mem,%cpu --sort=-%mem | head
+**What I analyze:**
 
-# Detailed memory info
-pmap -x <PID>
+* Is it application-related (Java, Python, Node)?
+* Is it expected load (traffic spike) or abnormal?
 
-# Check OOM logs
-dmesg | grep -i oom
-Real-Time Scenario
+**Real scenario:**
+A Python script was consuming ~95% CPU due to an infinite loop. I restarted the service to stabilize the system and worked with the dev team to fix the logic.
 
-One production server became very slow.
+**Key point:**
+I always identify the exact process before taking action instead of blindly restarting services.
 
-Investigation
+## 2. A process is consuming high memory but you don’t know which one. How do you find and fix it?
+
+**Answer:**
+
+First, check overall memory usage:
+
+```bash
 free -m
+```
 
-Memory was almost full.
+* Shows total, used, free, and available memory
+* Important to focus on "available" memory, not just "used"
 
-Then:
+Then identify top memory-consuming processes:
 
-ps -eo pid,cmd,%mem --sort=-%mem | head
+```bash
+ps aux --sort=-%mem | head
+```
 
-Found Python process consuming 12GB RAM.
+or
 
-Root Cause
-
-Memory leak in application.
-
-Fix
-Restarted service temporarily
-Enabled memory limits
-Added monitoring alerts
-Developers fixed memory leak
-Additional Checks
-vmstat 1
-sar -r 1 5
-3. A production server becomes slow at random times. What steps will you take to troubleshoot?
-Step-by-Step Approach
-1. Check System Load
-uptime
+```bash
 top
-2. Check CPU
-mpstat -P ALL 1
-3. Check Memory
-free -m
-vmstat 1
-4. Check Disk I/O
-iostat -x 1
-iotop
-5. Check Network
-ss -s
-netstat -antp
-6. Check Logs
+```
+
+* Press `M` in top to sort by memory
+
+To analyze a specific process:
+
+```bash
+pmap -x <pid>
+```
+
+* Shows memory breakdown (heap, stack, etc.)
+
+**Fix approach:**
+
+* If it's safe → restart the process
+* If critical → check logs before restarting
+* Long-term → fix memory leak or adjust configuration
+
+**Real scenario:**
+A Java application was consuming high memory due to incorrect heap size. I temporarily increased memory allocation and later tuned JVM settings.
+
+**Key point:**
+I try to understand whether it’s a memory leak or expected behavior before restarting.
+
+## 3. A production server becomes slow at random times. What steps will you take to troubleshoot?
+
+**Answer:**
+
+Since the issue is intermittent, I try to capture system behavior during the slowdown.
+
+Check CPU and system stats:
+
+```bash
+top
+```
+
+```bash
+vmstat 1 5
+```
+
+* Shows CPU, memory, and process stats every second
+
+```bash
+iostat -x 1 5
+```
+
+* Helps identify disk I/O bottlenecks (high %util means disk is busy)
+
+Check logs:
+
+```bash
 journalctl -xe
-tail -f /var/log/messages
-Real-Time Scenario
+```
 
-Server slowdown happened every night at 2 AM.
+* Shows recent system errors
 
-Found Issue
+Check disk usage:
 
-Backup job running with high compression causing:
-
-High CPU
-High Disk I/O
-Solution
-Changed backup timing
-Reduced compression level
-Added resource limits using nice and ionice
-nice -n 10 backup.sh
-ionice -c3 backup.sh
-4. Disk space is 100% full on /. How will you handle it without downtime?
-First Check
+```bash
 df -h
-Find Large Files
-du -sh /* 2>/dev/null
-find / -type f -size +1G
-Common Cleanup Areas
-/var/log
-/tmp
-/var/cache
-Clean Old Logs
-truncate -s 0 /var/log/large.log
-Clean Package Cache
+```
 
-Ubuntu:
+Check scheduled jobs:
 
-apt clean
+```bash
+crontab -l
+```
 
-RHEL:
+**What I look for:**
 
-yum clean all
-Remove Old Docker Images
-docker system prune -a
-Real-Time Scenario
+* Any spikes in CPU, memory, or disk usage
+* Background jobs running at that time
+* Errors in logs
 
-Production server disk became 100%.
+**Real scenario:**
+Server slowdown was happening every night. After checking cron jobs, I found a backup job causing high disk I/O. Rescheduling it fixed the issue.
 
-Root cause:
+**Key point:**
+Random slowness is usually due to scheduled tasks, traffic spikes, or resource contention.
 
-Huge application logs
-Log rotation missing
-Fix
-Truncated logs
-Configured logrotate
-Added monitoring alerts
-5. A service is down but the server is running. How do you debug this?
-Check Service Status
+## 4. Disk space is 100% full on /. How will you handle it without downtime?
+
+**Answer:**
+
+First, confirm disk usage:
+
+```bash
+df -h
+```
+
+* Shows which partition is full
+
+Find large directories:
+
+```bash
+du -sh /* | sort -h
+```
+
+* Helps identify which top-level directory is consuming space
+
+Drill down further into large directories if needed.
+
+Find large files:
+
+```bash
+find / -type f -size +500M
+```
+
+* Quickly locates big files
+
+Immediate fix (safe log cleanup):
+
+```bash
+truncate -s 0 /var/log/syslog
+```
+
+* Clears file content without deleting file
+
+**Other quick actions:**
+
+* Remove old backups
+* Clean temporary files (`/tmp`)
+* Clear unused Docker images (if applicable)
+
+**Real scenario:**
+Jenkins logs filled up the root partition. I cleared logs immediately and then implemented log rotation.
+
+**Key point:**
+First restore space quickly, then implement a permanent fix like logrotate.
+
+## 5. A service is down but the server is running. How do you debug this?
+
+**Answer:**
+
+Start with checking service status:
+
+```bash
 systemctl status nginx
-Check Logs
-journalctl -u nginx -xe
-Check Port
+```
+
+* Shows whether service is active, failed, or stopped
+* Also shows recent error logs
+
+If stopped, try starting:
+
+```bash
+systemctl start nginx
+```
+
+If it fails, check detailed logs:
+
+```bash
+journalctl -u nginx
+```
+
+Check if service is listening on expected port:
+
+```bash
 ss -tulnp | grep 80
-Verify Process
-ps -ef | grep nginx
-Check Configuration
-nginx -t
-Real-Time Scenario
+```
 
-Nginx service stopped after deployment.
+* Confirms whether port is open and which process is using it
 
-Root Cause
+Check firewall rules:
 
-Wrong syntax in config file.
+```bash
+iptables -L
+```
 
-Fix
-nginx -t
-systemctl restart nginx
-2. Processes & System Behavior
-6. A process is stuck and not getting killed even with kill -9. What will you do?
-Possible Reasons
-Process in uninterruptible sleep (D state)
-Waiting on disk/NFS I/O
-Kernel-level issue
-Check Process State
-ps -eo pid,state,cmd | grep <PID>
-If State = D
+**What I verify:**
 
-Usually related to:
+* Service status
+* Configuration errors
+* Port binding
+* Network/firewall issues
 
-Disk issue
-NFS mount issue
-Hardware issue
-Check
-iostat -x 1
-dmesg
-Real-Time Scenario
+**Real scenario:**
+Nginx failed due to a syntax error in configuration. Logs clearly showed the issue. After fixing config, service started successfully.
 
-Backup process stuck in D state because NFS server became unreachable.
+## 6. A process is stuck and not getting killed even with kill -9. What will you do?
 
-Fix
-Restored NFS connectivity
-Process recovered automatically
-In worst case → reboot server
-7. How do you find which process is using a specific port (e.g., 8080)?
+**Answer:**
+
+First, I try normal termination:
+
+```bash
+kill -15 <pid>
+```
+
+* Sends SIGTERM (graceful shutdown)
+
+If that doesn’t work:
+
+```bash
+kill -9 <pid>
+```
+
+* Forces termination (SIGKILL)
+
+If the process is still not killed, I check its state:
+
+```bash
+ps -o pid,stat,cmd -p <pid>
+```
+
+* If state shows `D` → uninterruptible sleep (usually waiting on disk I/O)
+
+**What it means:**
+
+* Process is stuck in kernel-level operation (disk, NFS, etc.)
+* Even kill -9 cannot terminate it
+
+**Next steps:**
+
+* Check disk/NFS issues
+* As last resort → reboot the server
+
+**Real scenario:**
+A process was stuck due to NFS mount issue. It stayed in D state and only got cleared after fixing mount and reboot.
+
+**Key point:**
+If a process is in D state, killing won’t help — need to fix underlying I/O issue.
+
+## 7. How do you find which process is using a specific port (e.g., 8080)?
+
+**Answer:**
+
+Use:
+
+```bash
 lsof -i :8080
+```
 
+* Shows process using the port with PID
+
+Alternative:
+
+```bash
 ss -tulnp | grep 8080
+```
 
-netstat -tulnp | grep 8080
-Example Output
-java  1234 root  TCP *:8080 (LISTEN)
-8. You accidentally started a process in the foreground. How do you move it to background without stopping it?
-Steps
+* Faster and more modern than netstat
+* Shows listening ports and associated processes
+
+**Explanation:**
+
+* Helps identify which service is bound to a port
+* Useful during deployment conflicts
+
+**Real scenario:**
+While deploying a new app, port 8080 was already in use by an old process. I identified and killed it before restarting the new service.
+
+**Key point:**
+Always check port usage before starting services to avoid conflicts.
+
+## 8. You accidentally started a process in the foreground. How do you move it to background without stopping it?
+
+**Answer:**
+
+First, suspend the process:
 
 Press:
 
-CTRL + Z
+```
+Ctrl + Z
+```
 
-Then:
+Then move it to background:
 
+```bash
 bg
+```
 
-To detach fully:
+To detach it completely:
 
+```bash
 disown
-Example
-./script.sh
-CTRL + Z
-bg
-disown
-9. What happens internally when you run a command in Linux?
-Internal Flow
-Shell receives command
-Shell checks PATH variable
-Creates process using fork()
-Child process loads program using exec()
-Kernel schedules CPU
-Command executes
-Output returned to terminal
-Exit status returned
-Example
-ls -l
+```
 
-Shell:
+**Alternative (better approach):**
 
-Finds /bin/ls
-Creates child process
-Executes binary
-10. Difference between zombie and orphan processes?
-Zombie Process
-Process finished execution
-Entry still exists in process table
-Parent did not read exit status
-Check Zombies
-ps -el | grep Z
-Orphan Process
-Parent process terminated
-Child adopted by PID 1 (systemd/init)
-Real-Time Scenario
+Start process with:
 
-Improperly written application created many zombie processes causing PID exhaustion.
+```bash
+nohup <command> &
+```
 
-Fix
-Restarted parent application
-Developers fixed child process handling
-3. File System & Storage
-11. How do you find large files quickly?
-find / -type f -size +1G 2>/dev/null
+* Runs process in background even after logout
 
-du -ah / | sort -rh | head -20
-12. What will you do if inode usage is 100% but disk space is available?
-Check Inodes
+**Explanation:**
+
+* Foreground → blocks terminal
+* Background → runs independently
+
+**Real scenario:**
+While running a long script, I forgot to use nohup. I moved it to background using Ctrl+Z and bg without stopping execution.
+
+**Key point:**
+Knowing job control avoids restarting long-running tasks.
+
+## 9. What happens internally when you run a command in Linux?
+
+**Answer:**
+
+When a command is executed:
+
+1. Shell receives the command (bash)
+2. Shell searches command in PATH
+3. Forks a new process
+4. Executes command using `exec`
+5. Waits for process to complete
+
+**You can verify PATH:**
+
+```bash
+echo $PATH
+```
+
+**Check command location:**
+
+```bash
+which ls
+```
+
+**Explanation:**
+
+* `fork()` creates a child process
+* `exec()` replaces it with actual command
+
+**Real understanding:**
+Every command you run is a process created by the shell.
+
+**Key point:**
+Understanding this helps in debugging process-related issues and scripting.
+
+## 10. Difference between zombie and orphan processes? How do you handle them in real-time?
+
+**Answer:**
+
+**Zombie Process:**
+
+* Process finished execution but still in process table
+* Parent has not read exit status
+
+Check zombies:
+
+```bash
+ps aux | grep Z
+```
+
+**Orphan Process:**
+
+* Parent process is terminated
+* Child is adopted by init/systemd
+
+**Handling zombie:**
+
+* Restart parent process
+* Or kill parent process so init takes over
+
+**Handling orphan:**
+
+* Usually no issue (handled by system)
+
+**Real scenario:**
+An application was creating zombie processes due to improper child handling. Restarting parent process cleared them.
+
+**Key point:**
+Zombies don’t consume CPU but can exhaust process table if not handled.
+
+## 11. How do you find large files in a server quickly?
+
+**Answer:**
+
+Use:
+
+```bash
+find / -type f -size +500M
+```
+
+* Finds files larger than 500MB
+
+Sort directories by size:
+
+```bash
+du -sh /* | sort -h
+```
+
+* Helps identify which directories are consuming space
+
+**Explanation:**
+
+* `find` → file-level search
+* `du` → directory-level analysis
+
+**Real scenario:**
+A backup file accidentally stored in `/tmp` was consuming several GB. Identified and removed using find.
+
+**Key point:**
+Quick identification helps prevent downtime due to disk issues.
+
+## 12. What will you do if inode usage is 100% but disk space is available?
+
+**Answer:**
+
+Check inode usage:
+
+```bash
 df -i
-Root Cause
+```
 
-Too many small files.
+**Explanation:**
 
-Find Directory
-for i in /*; do echo $i; find $i | wc -l; done
-Real-Time Scenario
+* Inodes track number of files, not size
+* Too many small files → inode exhaustion
 
-Application generated millions of temp files.
+Find directories with many files:
 
-Fix
-Deleted temp files
-Added cleanup cron job
-13. Real-time scenario where symbolic links are useful?
-Example
+```bash
+find / -xdev -type f | wc -l
+```
 
-Current app release:
+or:
 
-/opt/app/releases/v1
-/opt/app/releases/v2
+```bash
+du --inodes -d 2 / | sort -n
+```
 
-Create symlink:
+**Fix:**
 
-ln -sfn /opt/app/releases/v2 /opt/app/current
+* Remove unnecessary small files
+* Clean logs or temp directories
 
-Application always points to:
+**Real scenario:**
+Application logs created millions of tiny files. Disk had space but inode limit was hit. Cleaning files resolved it.
 
-/opt/app/current
-Benefit
+**Key point:**
+“No space left” is not always disk — sometimes inode limit.
 
-Easy rollback during deployment.
+## 13. Explain a real-time scenario where symbolic links are useful.
 
-14. How do you recover a deleted file in Linux?
-Case 1: File Open by Process
+**Answer:**
+
+Create symbolic link:
+
+```bash
+ln -s /var/log/app.log /home/user/app.log
+```
+
+**Explanation:**
+
+* Soft link points to original file path
+* Useful for shortcuts and versioning
+
+**Real scenario:**
+In deployments, we used symbolic links like:
+
+```
+current -> release_v2
+```
+
+Switching versions was as simple as updating the symlink.
+
+**Key point:**
+Symbolic links are widely used in deployments and configuration management.
+
+## 14. How do you recover a deleted file in Linux?
+
+**Answer:**
+
+If file is deleted normally:
+
+* Recovery is difficult unless backup exists
+
+**Check open file still in use:**
+
+```bash
 lsof | grep deleted
+```
 
-Copy from:
+* If process still holds file → data can be recovered
 
-/proc/<PID>/fd/
-Case 2
+**Best practice:**
 
-Restore from:
+* Use backups (rsync, snapshots)
+* Use version control where possible
 
-Backup
-Snapshot
-EBS snapshot
-LVM snapshot
-Important
+**Real scenario:**
+A log file was deleted but still open by a process. We copied data from `/proc/<pid>/fd/` and recovered it.
 
-Linux usually cannot recover permanently deleted files easily.
+**Key point:**
+Prevention (backups) is better than recovery.
 
-15. Difference between soft link and hard link?
-Soft Link	Hard Link
-Points to filename	Points to inode
-Can cross filesystem	Cannot cross filesystem
-Breaks if original deleted	Works even if original deleted
-Commands
-ln -s file softlink
-ln file hardlink
-Real Use Case
+## 15. Difference between soft link and hard link with real use case?
 
-Soft link:
+**Answer:**
 
-Application releases
-Shared configs
+**Soft Link:**
 
-Hard link:
+```bash
+ln -s file1 softlink
+```
 
-Backup systems
-File redundancy
-4. Networking
-16. Server is not reachable. How do you troubleshoot?
-Step-by-Step
-ping <server>
+* Points to file path
+* Breaks if original file is deleted
 
-traceroute <server>
+**Hard Link:**
 
-ip addr
+```bash
+ln file1 hardlink
+```
 
+* Points to same inode
+* Works even if original file is deleted
+
+**Key differences:**
+
+* Soft link → flexible, cross-filesystem
+* Hard link → more robust, same filesystem only
+
+**Real scenario:**
+Soft links used for application version switching. Hard links used for backup optimization.
+
+**Key point:**
+Soft links are commonly used in DevOps deployments.
+
+## 16. A server is not reachable. How do you troubleshoot step by step?
+
+**Answer:**
+
+Start with basic network connectivity:
+
+```bash
+ping <server-ip>
+```
+
+* Checks if the server is reachable over the network
+
+If ping fails, check route:
+
+```bash
+traceroute <server-ip>
+```
+
+* Shows where the connection is failing in the network path
+
+Check if SSH port is open:
+
+```bash
+nc -zv <server-ip> 22
+```
+
+or
+
+```bash
+telnet <server-ip> 22
+```
+
+If you have access via console/cloud:
+
+Check network configuration:
+
+```bash
+ip a
+```
+
+Check routing:
+
+```bash
 ip route
+```
 
-ss -tulnp
+Check firewall:
 
-systemctl status firewalld
-Check Firewall
+```bash
 iptables -L
-ufw status
-Check Network Interface
-ethtool eth0
-Real-Time Scenario
+```
 
-Server unreachable after reboot.
+**Real scenario:**
+A server was unreachable due to a wrong security group rule in cloud. Port 22 was blocked. After updating rules, access was restored.
 
-Root Cause
+**Key point:**
+Always follow layered troubleshooting: network → port → firewall → server config.
 
-Network interface not coming UP automatically.
+## 17. How do you check if a port is open or not on a remote server?
 
-Fix
-nmcli connection up eth0
-17. How do you check if a remote port is open?
-telnet <ip> 443
+**Answer:**
 
-nc -zv <ip> 443
+Use netcat:
 
-curl -v telnet://<ip>:443
-18. DNS is not resolving. What will you check?
-Check DNS Config
-cat /etc/resolv.conf
-Test DNS
+```bash
+nc -zv <server-ip> 80
+```
+
+* `z` → scan mode
+* `v` → verbose output
+
+Alternative:
+
+```bash
+telnet <server-ip> 80
+```
+
+If connected → port is open
+If connection refused → port closed or service down
+
+Another method:
+
+```bash
+nmap -p 80 <server-ip>
+```
+
+* Scans specific port
+
+**Real scenario:**
+Application was not accessible because port 8080 was not exposed. Verified using nc and fixed firewall rules.
+
+**Key point:**
+Always confirm port availability before debugging application.
+
+## 18. DNS is not resolving in your server. What will you check?
+
+**Answer:**
+
+Check DNS resolution:
+
+```bash
 nslookup google.com
+```
+
+or
+
+```bash
 dig google.com
-Check Connectivity
-ping 8.8.8.8
-Real-Time Scenario
+```
 
-DNS failed after VPN change.
+Check DNS configuration:
 
-Root Cause
+```bash
+cat /etc/resolv.conf
+```
 
-Wrong DNS server entry.
+* Shows configured DNS servers
 
-19. Difference between netstat, ss, and lsof?
-netstat
+Test connectivity to DNS server:
 
-Old tool for:
+```bash
+ping <dns-server-ip>
+```
 
-Ports
-Connections
-Routing
-ss
+Check local hostname resolution:
 
-Modern replacement for netstat.
-Faster on large systems.
+```bash
+cat /etc/hosts
+```
 
+**Real scenario:**
+DNS was not resolving because `/etc/resolv.conf` had wrong nameserver. Updating it fixed the issue.
+
+**Key point:**
+DNS issues are often configuration-related, not network.
+
+## 19. Difference between netstat, ss, and lsof in real-time usage?
+
+**Answer:**
+
+**netstat:**
+
+```bash
+netstat -tulnp
+```
+
+* Older tool
+* Shows listening ports and connections
+
+**ss:**
+
+```bash
 ss -tulnp
-lsof
+```
 
-Shows:
+* Faster and modern replacement for netstat
+* Preferred in most systems
 
-Open files
-Open ports
-Process mapping
-lsof -i :8080
-20. Application cannot connect to DB. How do you debug?
-Check Connectivity
-ping db-server
-nc -zv db-server 3306
-Check DNS
-nslookup db-server
-Check Firewall
-iptables -L
-Check DB Service
+**lsof:**
+
+```bash
+lsof -i :80
+```
+
+* Shows which process is using a port
+
+**Explanation:**
+
+* `ss` → best for checking ports and connections
+* `lsof` → best for mapping ports to processes
+
+**Real scenario:**
+Used `ss` to check port availability and `lsof` to identify which process was holding the port.
+
+**Key point:**
+Use ss for speed, lsof for detailed process mapping.
+
+## 20. Your application cannot connect to DB. How will you debug?
+
+**Answer:**
+
+Step 1: Check DB connectivity
+
+```bash
+ping <db-server-ip>
+```
+
+Step 2: Check port accessibility
+
+```bash
+nc -zv <db-server-ip> 3306
+```
+
+Step 3: Verify DB service on server
+
+```bash
 systemctl status mysql
-Real-Time Scenario
+```
 
-Application unable to connect after security group change in AWS.
+Step 4: Check application configuration
 
-Root Cause
+* DB host
+* Port
+* Username/password
 
-DB port blocked in security group.
+Step 5: Check logs
 
-5. Permissions & Security
-21. User cannot access file though permissions look correct. Why?
-Possible Reasons
-Parent directory permission issue
-ACL rules
-SELinux context
-Wrong ownership
-Check
-namei -l file.txt
+```bash
+journalctl -u <app-service>
+```
 
+or application logs
+
+**Real scenario:**
+Application failed to connect because DB port was blocked in firewall. After opening port 3306, connection worked.
+
+**Key point:**
+Always verify network → port → service → credentials in order.
+
+## 21. A user cannot access a file even though permissions look correct. What could be wrong?
+
+**Answer:**
+
+First, check file permissions:
+
+```bash id="i2p9gk"
+ls -l file.txt
+```
+
+Even if permissions look correct, I verify:
+
+**1. Directory permissions:**
+
+```bash id="l2xt5s"
+ls -ld <directory>
+```
+
+* User needs execute (`x`) permission on directory to access files inside
+
+**2. Ownership:**
+
+```bash id="l7k0i3"
+ls -l file.txt
+```
+
+* Check if user belongs to the correct group
+
+**3. ACL (Access Control List):**
+
+```bash id="1qz6wa"
 getfacl file.txt
+```
 
-ls -Z file.txt
-22. Difference between chmod 777 and 755?
-chmod 777
+**4. SELinux (if enabled):**
 
-Everyone:
+```bash id="5mn2d1"
+getenforce
+```
 
-Read
-Write
-Execute
-Risk
+**Real scenario:**
+User couldn’t access a file even with 777 permissions because the parent directory didn’t have execute permission.
 
-Huge security risk.
+**Key point:**
+Access depends on both file and directory permissions, not just the file itself.
 
-chmod 755
+## 22. What is the difference between chmod 777 and chmod 755 in real-world impact?
 
-Owner:
+**Answer:**
 
-Read/write/execute
+```bash id="q4zdp2"
+chmod 777 file
+```
 
-Others:
+* Read, write, execute for everyone
+* Not secure (any user can modify/delete)
 
-Read/execute only
-Real-World Usage
+```bash id="ypt7pn"
+chmod 755 file
+```
 
-755 used for:
+* Owner: full access
+* Others: read and execute only
 
-Scripts
-Application directories
-Web servers
+**Explanation:**
 
-777 should be avoided in production.
+* 777 → open access, risky
+* 755 → controlled access, safer
 
-23. How do you give sudo access safely?
+**Real scenario:**
+A script was given 777 permission for quick testing but later restricted to 755 to prevent unauthorized modifications.
+
+**Key point:**
+Avoid 777 in production. Follow least privilege principle.
+
+## 23. How do you give sudo access to a user safely?
+
+**Answer:**
+
+Add user to sudo group:
+
+```bash id="f8h4tf"
+usermod -aG sudo username
+```
+
+Or edit sudoers file safely:
+
+```bash id="x7x7bw"
 visudo
+```
+
+Add entry:
+
+```id="mjxm9r"
+username ALL=(ALL) NOPASSWD:ALL
+```
+
+**Explanation:**
+
+* `visudo` prevents syntax errors
+* You can restrict commands instead of giving full access
+
+**Real scenario:**
+Instead of giving full sudo, I allowed a user to restart only a specific service using limited sudo rules.
+
+**Key point:**
+Always give minimum required privileges instead of full admin access.
+
+## 24. What is sticky bit, SUID, SGID with real-time usage?
+
+**Answer:**
+
+**Sticky Bit:**
+
+```bash id="0n0g7j"
+chmod +t /shared
+```
+
+* Users can only delete their own files
+* Common in `/tmp`
+
+**SUID (Set User ID):**
+
+```bash id="zpr8r6"
+chmod u+s file
+```
+
+* Runs command with file owner’s privileges
+
+**SGID (Set Group ID):**
+
+```bash id="7y1r7q"
+chmod g+s directory
+```
+
+* Files inherit group ownership
+
+**Real scenario:**
+
+* Sticky bit used in shared directories
+* SGID used in team project folders to maintain group ownership
+
+**Key point:**
+These are used to control permissions beyond normal chmod.
+
+## 25. A script runs manually but fails in cron. Why?
+
+**Answer:**
+
+Most common issue: **environment difference**
+
+Check cron jobs:
+
+```bash id="fd7g9k"
+crontab -l
+```
+
+Check logs:
+
+```bash id="j2l1zt"
+grep CRON /var/log/syslog
+```
+
+**Common problems:**
+
+* PATH not set
+* Missing environment variables
+* Relative paths used instead of absolute paths
+
+**Fix:**
+
+Use full paths:
+
+```bash id="6yo7kq"
+/usr/bin/python3 /home/user/script.py
+```
+
+Set PATH explicitly:
+
+```bash id="z5p5vn"
+PATH=/usr/bin:/bin
+```
+
+**Real scenario:**
+Script failed in cron because it used relative paths. After converting to absolute paths, it worked.
+
+**Key point:**
+Cron runs in a minimal environment, so always define everything explicitly.
+## 26. Where do you check logs for system issues?
+
+**Answer:**
+
+First place I check is system logs:
+
+```bash
+/var/log/
+```
+
+Common log files:
+
+* `/var/log/syslog` → general system logs (Debian/Ubuntu)
+* `/var/log/messages` → system logs (RHEL/CentOS)
+* `/var/log/auth.log` → authentication logs
+* `/var/log/kern.log` → kernel logs
+
+Using journal (systemd-based systems):
+
+```bash
+journalctl -xe
+```
+
+* Shows recent system errors with detailed context
+
+**Real scenario:**
+A service was failing during startup. `journalctl -xe` showed a permission error which helped identify the issue quickly.
+
+**Key point:**
+Always start with system logs before going to application-specific logs.
+
+## 27. How do you monitor logs in real-time for errors?
+
+**Answer:**
+
+Basic real-time monitoring:
+
+```bash
+tail -f /var/log/syslog
+```
+
+* Continuously streams new log entries
+
+For filtering specific keywords:
+
+```bash
+tail -f /var/log/syslog | grep ERROR
+```
+
+Alternative:
+
+```bash
+less +F /var/log/syslog
+```
+
+* Similar to tail but allows scrolling back
+
+**Explanation:**
+
+* `tail -f` is useful during deployments or debugging live issues
+
+**Real scenario:**
+During deployment, I monitored logs using `tail -f` to quickly catch application errors and fix them immediately.
+
+**Key point:**
+Real-time log monitoring helps reduce debugging time during incidents.
+
+## 28. Your application logs are growing rapidly. How do you manage them?
+
+**Answer:**
+
+First, confirm log size:
+
+```bash
+du -sh /var/log/*
+```
+
+Immediate action (if disk is filling):
+
+```bash
+truncate -s 0 /var/log/app.log
+```
+
+Then implement log rotation using:
+
+```bash
+/etc/logrotate.conf
+```
+
+or create custom config:
+
+```bash
+/etc/logrotate.d/app
+```
+
+Example:
+
+```bash
+/var/log/app.log {
+    daily
+    rotate 7
+    compress
+    missingok
+    notifempty
+}
+```
+
+**Explanation:**
+
+* Keeps limited number of logs
+* Compresses old logs
+* Prevents disk overflow
+
+**Real scenario:**
+An application log grew to several GB. I truncated it immediately and added logrotate configuration.
+
+**Key point:**
+Always combine immediate cleanup with a permanent solution.
+
+## 29. What is log rotation and why is it important?
+
+**Answer:**
+
+Log rotation is the process of:
+
+* Archiving old logs
+* Creating new log files
+* Compressing old logs
+* Deleting older logs after a limit
+
+**Check configuration:**
+
+```bash
+cat /etc/logrotate.conf
+```
+
+Manual run:
+
+```bash
+logrotate -f /etc/logrotate.conf
+```
+
+**Why it is important:**
+
+* Prevents disk space issues
+* Keeps logs manageable
+* Improves system performance
+
+**Real scenario:**
+Without log rotation, logs filled the disk and caused application downtime. After configuring logrotate, issue was permanently resolved.
+
+**Key point:**
+Log rotation is essential for production systems to avoid outages.
+
+## 30. How do you debug a failed systemd service?
+
+**Answer:**
+
+Check service status:
+
+```bash
+systemctl status <service-name>
+```
+
+* Shows current state and recent logs
+
+Check detailed logs:
+
+```bash
+journalctl -u <service-name>
+```
+
+Check for configuration issues:
+
+* Incorrect paths
+* Permission issues
+* Missing dependencies
+
+Try restarting:
+
+```bash
+systemctl restart <service-name>
+```
+
+If needed, reload daemon:
+
+```bash
+systemctl daemon-reexec
+```
+
+**Real scenario:**
+A service failed due to incorrect file path in configuration. Logs from `journalctl` clearly showed the error.
+
+**Key point:**
+Always check `systemctl status` and `journalctl` before making changes.
+## 31. How do you check installed packages in Linux?
+
+**Answer:**
+
+It depends on the distribution.
+
+For Debian/Ubuntu:
+
+```bash
+dpkg -l
+```
+
+or
+
+```bash
+apt list --installed
+```
+
+For RHEL/CentOS:
+
+```bash
+yum list installed
+```
+
+or
+
+```bash
+rpm -qa
+```
+
+**To check a specific package:**
+
+```bash
+dpkg -l | grep nginx
+```
+
+or
+
+```bash
+rpm -qa | grep nginx
+```
+
+**Explanation:**
+
+* `dpkg` / `rpm` → low-level package tools
+* `apt` / `yum` → higher-level package managers
+
+**Real scenario:**
+While debugging an issue, I verified whether a required package was installed before proceeding with configuration.
+
+**Key point:**
+Always confirm package availability before troubleshooting further.
+
+## 32. A package installation failed due to dependencies. How do you resolve it?
+
+**Answer:**
+
+For Debian/Ubuntu:
+
+```bash
+apt-get install -f
+```
+
+* Fixes broken dependencies
+
+```bash
+apt-get update
+apt-get upgrade
+```
+
+For RHEL/CentOS:
+
+```bash
+yum install <package> --skip-broken
+```
+
+or
+
+```bash
+yum deplist <package>
+```
+
+**Manual approach:**
+
+* Identify missing dependencies
+* Install them individually
+
+**Explanation:**
+Dependency issues happen when required libraries are missing or incompatible versions exist.
+
+**Real scenario:**
+A package failed due to missing library version. After updating repo and installing dependency manually, installation succeeded.
+
+**Key point:**
+Always resolve dependencies instead of forcing installation.
+
+## 33. Difference between apt and yum in real-world usage?
+
+**Answer:**
+
+**apt (Debian/Ubuntu):**
+
+```bash
+apt update
+apt install nginx
+```
+
+**yum (RHEL/CentOS):**
+
+```bash
+yum install nginx
+```
+
+**Differences:**
+
+* apt → uses `.deb` packages
+* yum → uses `.rpm` packages
+* apt → faster dependency resolution (generally)
+* yum → widely used in enterprise environments
+
+(Newer systems use `dnf` instead of yum)
+
+**Real scenario:**
+In multi-cloud environments, I handled Ubuntu servers with apt and RHEL servers with yum/dnf.
+
+**Key point:**
+Concept is same, only commands differ.
+
+## 34. How do you update a system without breaking running services?
+
+**Answer:**
+
+First, check available updates:
+
+```bash
+apt list --upgradable
+```
+
+or
+
+```bash
+yum check-update
+```
+
+Apply updates carefully:
+
+```bash
+apt upgrade
+```
+
+or
+
+```bash
+yum update
+```
+
+**Best practices:**
+
+* Avoid updating everything blindly
+* Update critical packages only if needed
+* Take backup or snapshot before update
+* Perform updates during maintenance window
+
+**Check if reboot is required:**
+
+```bash
+reboot
+```
+
+or on Ubuntu:
+
+```bash
+/var/run/reboot-required
+```
+
+**Real scenario:**
+Before patching a production server, I took a snapshot, applied updates, and verified application health before proceeding.
+
+**Key point:**
+Always minimize risk by planning updates.
+
+## 35. How do you check OS version and kernel details?
+
+**Answer:**
+
+Check OS version:
+
+```bash
+cat /etc/os-release
+```
+
+or
+
+```bash
+lsb_release -a
+```
+
+Check kernel version:
+
+```bash
+uname -r
+```
+
+Full system info:
+
+```bash
+uname -a
+```
+
+**Explanation:**
+
+* OS version → distribution details
+* Kernel → core of the operating system
+
+**Real scenario:**
+While debugging compatibility issues, I checked kernel version to verify support for a specific feature.
+
+**Key point:**
+OS and kernel details are important for troubleshooting and compatibility checks.
+## 36. A cron job is not running. How do you debug it?
+
+**Answer:**
+
+First, check if cron service is running:
+
+```bash
+systemctl status cron
+```
+
+(or `crond` on RHEL/CentOS)
+
+Check scheduled jobs:
+
+```bash
+crontab -l
+```
+
+Check logs:
+
+```bash
+grep CRON /var/log/syslog
+```
+
+(or `/var/log/cron` in RHEL)
+
+**Things I verify:**
+
+* Correct schedule format
+* Script path is absolute
+* Script has execute permission
+
+```bash
+chmod +x script.sh
+```
+
+* Environment variables (PATH)
+
+**Real scenario:**
+A cron job failed because the script used relative paths. After changing to absolute paths, it worked.
+
+**Key point:**
+Cron runs in a minimal environment, so always define full paths and permissions.
+
+## 37. How do you schedule a job to run every 5 minutes?
+
+**Answer:**
+
+Edit crontab:
+
+```bash
+crontab -e
+```
 
 Add:
 
-username ALL=(ALL) ALL
-Better Approach
+```bash
+*/5 * * * * /path/to/script.sh
+```
 
-Create limited sudo rules.
+**Explanation of format:**
+
+```
+* * * * *
+| | | | |
+| | | | └── Day of week
+| | | └──── Month
+| | └────── Day of month
+| └──────── Hour
+└────────── Minute
+```
+
+* `*/5` means every 5 minutes
+
+**Real scenario:**
+Used this to run health-check scripts periodically for monitoring.
+
+**Key point:**
+Always test cron expression before using in production.
+
+## 38. Difference between cron and at?
+
+**Answer:**
+
+**cron:**
+
+* Used for recurring jobs
+* Runs at scheduled intervals
 
 Example:
 
-username ALL=(ALL) NOPASSWD:/bin/systemctl restart nginx
-24. Sticky bit, SUID, SGID?
-Sticky Bit
+```bash
+0 2 * * * backup.sh
+```
 
-Users can delete only their own files.
+**at:**
 
-chmod +t /shared
+* Used for one-time execution
 
-Used on:
+```bash
+at 10:00
+```
 
-/tmp
-SUID
+Then type command and press Ctrl+D
 
-Runs command as file owner.
+**Check at jobs:**
 
-chmod u+s file
+```bash
+atq
+```
 
-Example:
+**Explanation:**
 
-passwd command
-SGID
+* cron → repetitive tasks
+* at → one-time tasks
 
-Files inherit group ownership.
+**Real scenario:**
+Used `at` to schedule a one-time server restart after maintenance.
 
-Useful in shared directories.
+**Key point:**
+Use cron for automation, at for temporary scheduling.
 
-25. Script runs manually but fails in cron. Why?
-Common Reasons
-PATH variable missing
-Permissions issue
-Environment variables missing
-Relative paths used
-Fix
+## 39. Where are cron logs stored?
 
-Use full paths.
+**Answer:**
 
-Wrong:
+Depends on distribution:
 
-python app.py
+Ubuntu/Debian:
 
-Correct:
-
-/usr/bin/python3 /opt/app/app.py
-Check Logs
-grep CRON /var/log/syslog
-6. Logs & Monitoring
-26. Where do you check logs for system issues?
-Common Locations
-/var/log/messages
+```bash
 /var/log/syslog
-/var/log/secure
-/var/log/auth.log
-journalctl
-27. How do you monitor logs in real time?
-tail -f app.log
+```
 
-tail -f app.log | grep ERROR
+Check logs:
 
-journalctl -f
-28. Application logs growing rapidly. How do you manage?
-Configure logrotate
-/etc/logrotate.conf
-/etc/logrotate.d/
-Example
-/var/log/app.log {
- daily
- rotate 7
- compress
- missingok
-}
-29. What is log rotation?
-Purpose
-Prevent disk full issue
-Compress old logs
-Retain limited logs
-Importance
-
-Critical in production systems.
-
-30. How do you debug failed systemd service?
-systemctl status app
-
-journalctl -u app -xe
-
-systemctl cat app
-Check Config
-ExecStart path
-Permissions
-Environment variables
-7. Package & System Management
-31. Check installed packages
-
-Ubuntu:
-
-dpkg -l
-
-RHEL:
-
-rpm -qa
-32. Package install failed due to dependencies
-
-Ubuntu:
-
-apt --fix-broken install
-
-RHEL:
-
-yum install --skip-broken
-33. Difference between apt and yum
-apt	yum
-Debian/Ubuntu	RHEL/CentOS
-Uses .deb	Uses .rpm
-dpkg backend	rpm backend
-34. Update system without breaking services
-Best Practice
-Take backup/snapshot
-Update in staging first
-Use rolling updates
-Restart only required services
-Commands
-apt update && apt upgrade
-
-yum update
-35. Check OS and kernel version
-cat /etc/os-release
-
-uname -r
-
-hostnamectl
-8. Cron & Automation
-36. Cron job not running. How do you debug?
-Check Cron Service
-systemctl status cron
-Check User Crontab
-crontab -l
-Check Logs
+```bash
 grep CRON /var/log/syslog
-Common Issues
-Wrong path
-Missing permissions
-Environment variables
-37. Schedule every 5 minutes
-*/5 * * * * /opt/script.sh
-38. Difference between cron and at
-cron	at
-Repeated jobs	One-time jobs
-Scheduled recurring	Scheduled once
-39. Where are cron logs stored?
+```
 
-Ubuntu:
+RHEL/CentOS:
 
-/var/log/syslog
-
-RHEL:
-
+```bash
 /var/log/cron
-40. Prevent overlapping cron jobs
-Use flock
-flock -n /tmp/job.lock /opt/job.sh
-9. DevOps-Oriented Linux
-41. How Linux supports Docker containers?
+```
 
-Linux provides:
+Check logs:
 
-Namespaces
-cgroups
-OverlayFS
-Networking
-Process isolation
+```bash
+cat /var/log/cron
+```
 
-Docker uses Linux kernel features directly.
+**Explanation:**
 
-42. What are namespaces and cgroups?
-Namespaces
+* Logs help confirm whether cron job executed or failed
 
-Provide isolation for:
+**Real scenario:**
+A cron job was not running. Logs showed permission denied error, which helped fix the issue.
 
-PID
-Network
-Mount
-Users
-cgroups
+**Key point:**
+Always check logs when cron jobs fail.
 
-Control:
+## 40. How do you prevent overlapping cron jobs?
 
-CPU
-Memory
-I/O limits
-43. Docker container not starting. How do you debug?
-Check Logs
-docker logs <container>
-Check Exit Code
+**Answer:**
+
+Use `flock`:
+
+```bash
+* * * * * flock -n /tmp/script.lock /path/to/script.sh
+```
+
+* Prevents multiple instances from running
+
+Alternative (manual lock file):
+
+```bash
+if [ -f /tmp/script.lock ]; then
+  exit 1
+fi
+touch /tmp/script.lock
+
+# run script
+
+rm -f /tmp/script.lock
+```
+
+**Explanation:**
+
+* Ensures only one instance runs at a time
+
+**Real scenario:**
+A backup script overlapped and caused high load. Using `flock` prevented multiple executions.
+
+**Key point:**
+Always control concurrency in scheduled jobs to avoid performance issues.
+## 41. How does Linux support containers like Docker?
+
+**Answer:**
+
+Linux provides core features that make containers possible:
+
+* **Namespaces** → isolate resources (processes, network, filesystem)
+* **cgroups (control groups)** → limit CPU, memory, and I/O usage
+* **Union file systems** → layered file storage (used by Docker images)
+
+Check cgroups:
+
+```bash id="r9k7zx"
+cat /proc/cgroups
+```
+
+Check processes in namespaces:
+
+```bash id="s4w9jt"
+lsns
+```
+
+**Explanation:**
+
+* Containers are not VMs; they share the host kernel
+* Isolation + resource control = containerization
+
+**Real scenario:**
+While debugging container resource issues, I checked cgroup limits to understand CPU throttling.
+
+**Key point:**
+Docker is built on Linux kernel features, not a separate virtualization layer.
+
+## 42. What is namespace and cgroups in Linux?
+
+**Answer:**
+
+**Namespaces:**
+
+* Provide isolation
+* Each container sees its own environment
+
+Types:
+
+* PID → process isolation
+* NET → network isolation
+* MNT → filesystem isolation
+
+Check namespaces:
+
+```bash id="4b2vkg"
+lsns
+```
+
+**cgroups:**
+
+* Control resource usage
+
+Check limits:
+
+```bash id="9q8e7d"
+cat /sys/fs/cgroup/memory.max
+```
+
+**Explanation:**
+
+* Namespace = isolation
+* cgroups = resource control
+
+**Real scenario:**
+A container was getting killed due to memory limit. After checking cgroups, I increased memory allocation.
+
+**Key point:**
+Both work together to provide container behavior.
+
+## 43. How do you debug a Docker container that is not starting?
+
+**Answer:**
+
+Check container status:
+
+```bash id="s6ljbw"
 docker ps -a
-Inspect Container
-docker inspect <container>
-Common Reasons
-Wrong CMD
-Port conflict
-Missing env variable
-Permission issue
-44. Check resource usage of containers
+```
+
+Check logs:
+
+```bash id="zpm64v"
+docker logs <container-id>
+```
+
+Inspect container:
+
+```bash id="9k0w8s"
+docker inspect <container-id>
+```
+
+Run interactively:
+
+```bash id="qg52u8"
+docker run -it <image> /bin/bash
+```
+
+**What I check:**
+
+* Application errors
+* Port conflicts
+* Missing dependencies
+* Incorrect CMD/ENTRYPOINT
+
+**Real scenario:**
+Container failed due to wrong startup command. Logs showed error, fixed Dockerfile CMD.
+
+**Key point:**
+Always start with logs before changing configuration.
+
+## 44. How do you check resource usage of containers from Linux?
+
+**Answer:**
+
+Basic Docker command:
+
+```bash id="a8o1tp"
 docker stats
+```
 
-For Kubernetes:
+* Shows CPU, memory, network usage in real-time
 
-kubectl top pod
-45. How Linux handles container networking?
+Check container processes:
 
-Linux uses:
+```bash id="9fzzbw"
+docker top <container-id>
+```
 
-Bridge networking
-veth pairs
-iptables/NAT
-Network namespaces
-Example
+From host level:
 
-Docker default bridge:
+```bash id="kqoz9y"
+top
+```
 
-docker0
-10. Advanced / Real Interview Level
-46. What happens when system runs out of memory?
+or
 
-Linux tries:
+```bash id="rj3k5k"
+htop
+```
 
-Free cache
-Swap usage
-OOM Killer triggers
+**Explanation:**
 
-Applications may:
+* docker stats → container-level view
+* top/htop → system-level view
 
-Crash
-Become slow
-Get killed
-47. What is OOM Killer?
+**Real scenario:**
+One container was consuming excessive CPU. Identified using `docker stats` and scaled it horizontally.
 
-OOM = Out Of Memory
+**Key point:**
+Always monitor both container and host resources.
 
-Kernel kills process to protect system.
+## 45. How does Linux handle networking for containers?
 
-Check Logs
+**Answer:**
+
+Docker creates virtual networks using:
+
+* **Bridge network (default)**
+* **Host network**
+* **Overlay network (for multi-host setups)**
+
+Check networks:
+
+```bash id="mhhkqg"
+docker network ls
+```
+
+Inspect network:
+
+```bash id="br0g6x"
+docker network inspect bridge
+```
+
+Check container IP:
+
+```bash id="y8hx0m"
+docker inspect <container-id> | grep IPAddress
+```
+
+**Explanation:**
+
+* Each container gets its own IP (in bridge mode)
+* NAT is used to expose ports to host
+
+**Real scenario:**
+Application was not reachable because port mapping was missing (`-p 8080:8080`). After exposing port, it worked.
+
+**Key point:**
+Container networking depends on proper configuration of ports and networks.
+
+**Key point:**
+I follow a structured approach: service → logs → port → network instead of random checks.
+## 46. What happens when a system runs out of memory (OOM)?
+
+**Answer:**
+
+When system memory is exhausted:
+
+* New processes cannot be allocated memory
+* Existing processes may fail or crash
+* Linux triggers the **OOM (Out Of Memory) Killer**
+
+Check memory usage:
+
+```bash id="zz9z2j"
+free -m
+```
+
+Check system activity:
+
+```bash id="b7q1e7"
+top
+```
+
+**Explanation:**
+
+* When RAM + swap are full, the kernel takes action
+* It selects and kills processes to free memory
+
+**Real scenario:**
+A Java application consumed all memory, causing system instability. The OOM killer terminated it automatically.
+
+**Key point:**
+Memory exhaustion can bring the entire system down if not handled.
+
+## 47. What is OOM killer and how do you debug it?
+
+**Answer:**
+
+OOM killer is a Linux kernel mechanism that:
+
+* Automatically kills processes when memory is exhausted
+* Selects process based on memory usage and priority
+
+Check OOM logs:
+
+```bash id="8o5vyt"
 dmesg | grep -i kill
-Real-Time Scenario
+```
 
-Java app consumed all memory.
-Kernel killed application automatically.
+or
 
-48. How do you tune Linux for high traffic applications?
-Tune Limits
+```bash id="csx2qz"
+journalctl -k | grep -i oom
+```
+
+Check process memory usage:
+
+```bash id="s3q47z"
+ps aux --sort=-%mem | head
+```
+
+**Explanation:**
+
+* Processes with higher memory usage are more likely to be killed
+* `oom_score` influences selection
+
+**Real scenario:**
+A container was repeatedly getting killed. Logs showed OOM events. Increasing memory limits fixed the issue.
+
+**Key point:**
+Always correlate OOM logs with application crashes.
+
+## 48. How do you tune Linux performance for high traffic applications?
+
+**Answer:**
+
+**1. CPU & process tuning:**
+
+```bash id="3d7yz2"
+top
+```
+
+**2. Memory tuning:**
+
+```bash id="s6bq3l"
+free -m
+```
+
+**3. File descriptor limits:**
+
+```bash id="0m9zfw"
 ulimit -n
-Sysctl Tuning
+```
+
+Increase in config:
+
+```id="qmvz9w"
+/etc/security/limits.conf
+```
+
+**4. Kernel tuning (sysctl):**
+
+```bash id="d8nt4g"
 sysctl -a
-Common Tunings
-net.core.somaxconn
-fs.file-max
-net.ipv4.ip_local_port_range
-Also
-Use load balancer
-Optimize app
-Use caching
-Enable monitoring
-49. What is load average?
-Example
+```
+
+Example:
+
+```id="y3w92c"
+net.core.somaxconn = 1024
+```
+
+**5. Disk I/O tuning:**
+
+```bash id="8f1tpc"
+iostat -x 1 5
+```
+
+**Explanation:**
+
+* Optimize CPU, memory, network, and I/O
+* Remove bottlenecks based on workload
+
+**Real scenario:**
+For a high-traffic app, I increased file descriptor limits and tuned network parameters to handle more concurrent connections.
+
+**Key point:**
+Performance tuning is about identifying and removing bottlenecks.
+
+## 49. What is load average and how do you interpret it?
+
+**Answer:**
+
+Check load:
+
+```bash id="r7ytx8"
 uptime
+```
 
-Output:
+Example output:
 
-load average: 1.20, 0.90, 0.70
-Meaning
-1 min
-5 min
-15 min averages
-Interpretation
+```
+load average: 1.00, 0.80, 0.60
+```
 
-On 4 CPU server:
+**Explanation:**
 
-Load 4 = normal
-Load > 4 = overloaded
-50. How do you troubleshoot high I/O wait?
-Check I/O
-iostat -x 1
+* 1 min, 5 min, 15 min averages
+* Represents number of processes waiting for CPU
+
+**Interpretation:**
+
+* If system has 2 CPUs:
+
+  * Load = 2 → fully utilized
+  * Load > 2 → overloaded
+
+Check CPU cores:
+
+```bash id="q2r7tk"
+nproc
+```
+
+**Real scenario:**
+Load average was consistently higher than CPU cores, indicating CPU saturation. Scaling application resolved it.
+
+**Key point:**
+Always compare load average with number of CPU cores.
+
+## 50. How do you troubleshoot high I/O wait?
+
+**Answer:**
+
+Check I/O stats:
+
+```bash id="s8q2zr"
+iostat -x 1 5
+```
+
+* Look at `%iowait` and `%util`
+
+Check processes causing I/O:
+
+```bash id="k8kpw0"
 iotop
-Check Disk Latency
-sar -d 1
-Common Reasons
-Slow disks
-Heavy writes
-Backup jobs
-DB queries
-Real-Time Scenario
+```
 
-High iowait during backup window.
+Check disk usage:
 
-Fix
-Moved backups off peak hours
-Used faster SSD storage
-Tuned DB queries
+```bash id="9o6p6s"
+df -h
+```
+
+**Explanation:**
+
+* High I/O wait means CPU is waiting for disk operations
+* Usually caused by heavy read/write operations
+
+**Fix approaches:**
+
+* Optimize application I/O
+* Move to faster storage (SSD)
+* Reduce logging or batch operations
+
+**Real scenario:**
+A backup job caused high disk usage, increasing I/O wait. Rescheduling it reduced the issue.
+
+**Key point:**
+High I/O wait is usually a storage bottleneck, not CPU issue.
