@@ -1,0 +1,5 @@
+#!/bin/bash
+
+echo "Failed SSH Login Attempts"
+
+grep "Failed password" /var/log/secure | awk '{print $11}' | sort | uniq -c | sort -nr
