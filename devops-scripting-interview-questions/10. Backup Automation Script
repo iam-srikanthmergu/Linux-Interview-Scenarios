@@ -1,0 +1,10 @@
+#!/bin/bash
+
+SOURCE="/opt/application"
+DEST="/backup"
+
+DATE=$(date +%F)
+
+tar -czf $DEST/app-backup-$DATE.tar.gz $SOURCE
+
+echo "Backup completed"
