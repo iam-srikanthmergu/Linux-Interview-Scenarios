@@ -1,0 +1,11 @@
+#!/bin/bash
+
+THRESHOLD=80
+
+memory_usage=$(free | grep Mem | awk '{print $3/$2 * 100.0}')
+
+memory_int=${memory_usage%.*}
+
+if [ $memory_int -ge $THRESHOLD ]; then
+    echo "High Memory Usage: ${memory_int}%"
+fi
