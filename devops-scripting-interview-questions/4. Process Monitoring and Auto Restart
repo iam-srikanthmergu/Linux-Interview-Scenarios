@@ -1,0 +1,11 @@
+#!/bin/bash
+
+SERVICE="nginx"
+
+if ! pgrep -x "$SERVICE" > /dev/null
+then
+    echo "$SERVICE is stopped. Restarting..."
+    systemctl restart $SERVICE
+else
+    echo "$SERVICE is running"
+fi
