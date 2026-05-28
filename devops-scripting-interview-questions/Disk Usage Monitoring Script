@@ -1,0 +1,15 @@
+#Production server disk became 95% full and application stopped working
+
+#!/bin/bash
+
+THRESHOLD=80
+
+df -h | grep -vE '^Filesystem|tmpfs|cdrom' | awk '{print $5 " " $1}' | while read output;
+do
+    usage=$(echo $output | awk '{print $1}' | cut -d'%' -f1)
+    partition=$(echo $output | awk '{print $2}')
+
+    if [ $usage -ge $THRESHOLD ]; then
+        echo "WARNING: Disk usage on $partition is ${usage}%"
+    fi
+done
