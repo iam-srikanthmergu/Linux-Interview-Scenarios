@@ -1,0 +1,7 @@
+#!/bin/bash
+
+for user in $(cat users.txt)
+do
+    useradd $user
+    echo "User $user created"
+done
