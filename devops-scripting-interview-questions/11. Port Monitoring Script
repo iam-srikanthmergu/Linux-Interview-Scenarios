@@ -1,0 +1,10 @@
+#!/bin/bash
+
+PORT=8080
+
+if netstat -tulnp | grep $PORT > /dev/null
+then
+    echo "Port $PORT is running"
+else
+    echo "Port $PORT is NOT running"
+fi
