@@ -1,0 +1,5 @@
+#!/bin/bash
+
+CRON_JOB="backup.sh"
+
+grep "$CRON_JOB" /var/log/cron
