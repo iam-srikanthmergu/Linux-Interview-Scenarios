@@ -1,0 +1,10 @@
+#!/bin/bash
+
+PACKAGE="nginx"
+
+if rpm -q $PACKAGE > /dev/null
+then
+    echo "$PACKAGE installed"
+else
+    echo "$PACKAGE not installed"
+fi
