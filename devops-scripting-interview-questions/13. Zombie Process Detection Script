@@ -1,0 +1,5 @@
+#!/bin/bash
+
+echo "Zombie Processes"
+
+ps aux | awk '$8=="Z" { print $2, $11 }'
