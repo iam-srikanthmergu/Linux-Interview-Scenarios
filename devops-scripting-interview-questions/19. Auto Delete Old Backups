@@ -1,0 +1,7 @@
+#!/bin/bash
+
+BACKUP_DIR="/backup"
+
+find $BACKUP_DIR -type f -mtime +30 -exec rm -f {} \;
+
+echo "Old backups removed"
